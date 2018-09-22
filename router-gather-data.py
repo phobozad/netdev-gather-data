@@ -9,11 +9,14 @@ from multiprocessing import Pool
 from getpass import getpass
 
 import signal
+import time
+import sys
 
 def getRouterData(routerIP):
 
 	# This function is called in each data collection process that we spawn
 
+	signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 	# Read the commands and header names we should use to capture the output
 
@@ -86,6 +89,36 @@ def processOutput(data):
 	# Let the progress bar know that one more device was completed so it updates accordingly
 	progressBar.update()
 
+def sigIntHandler(sig, frame):
+		signal.signal(signal.SIGINT, signal.SIG_IGN)
+		print ()
+		print ('Interrupted by user...exiting.  Please wait up to 30 seconds while the system cleans up.')
+		progressBar.close()
+		saveData()
+		pool.terminate()
+		pool.join()
+		sys.exit(1)
+	
+
+def saveData():
+	global fileName
+	global headers
+	global outputResult
+
+	with open(fileName,"wt") as fileOut:
+		csvWriter=csv.DictWriter(fileOut,fieldnames=headers)
+		csvWriter.writeheader()
+		try:
+			for router in outputResult:
+				csvWriter.writerow(router)
+		# Just in case one of the router dictionaries is empty or has missing columns
+		# we continue on outputting the rest and just skip that one.  Should be less
+		# of an issue now that we write empty strings to all columns even if we didn't
+		# get any output
+		except TypeError:
+			pass
+
+	print ('Output saved as {}.  Open in Excel for viewing.'.format(fileName))
 
 # The following code only runs on the parent process the user runs
 # When we launch a bunch of worker processes, the run this same code file
@@ -95,7 +128,9 @@ def processOutput(data):
 if __name__ == '__main__':
 	routerList = []
 	outputResult=[]
-	
+
+	signal.signal(signal.SIGINT, sigIntHandler)	
+
 	# Read the inputdata.csv file in the working directory to determine what commands to run
 	# and what to label that column in the output CSV.
 	# TODO: Test/fix what happens if user-specifed column name collides with the common
@@ -154,8 +189,10 @@ if __name__ == '__main__':
 	# Iterate through all the routers specified.  For each one, submit its IP
 	# to the pool of worker processes to be processed.  When each process completes
 	# the device it was given, take the output and send it to the processOutput function
+	jobList = []
 	for router in routerList:
-		pool.apply_async(getRouterData,args=(router,),callback=processOutput)
+		# We append the output object from apply_sync so we can later track its state
+		jobList.append(pool.apply_async(getRouterData,args=(router,),callback=processOutput))
 
 	# Don't accept any more jobs to be submitted to the processing pool
 	pool.close()
@@ -164,21 +201,17 @@ if __name__ == '__main__':
 	# As soon as a worker process completes one device, it will grab
 	# the next one in the list we sent to the pool
 	pool.join()
+	#try:
+	#	while True:
+	#		if all(job.ready() for job in jobList):
+				# We completed all jobs successfully
+	#			break
+	#		time.sleep(1)
+
+	#except KeyboardInterrupt:
+		#sys.exit(1)
 	
 	# We're done with the progress bar.  Need to cleanly remove it.
 	progressBar.close()
 
-	with open(fileName,"wt") as fileOut:
-		csvWriter=csv.DictWriter(fileOut,fieldnames=headers)
-		csvWriter.writeheader()
-		try:
-			for router in outputResult:
-				csvWriter.writerow(router)
-		# Just in case one of the router dictionaries is empty or has missing columns
-		# we continue on outputting the rest and just skip that one.  Should be less
-		# of an issue now that we write empty strings to all columns even if we didn't
-		# get any output
-		except TypeError:
-			pass
-
-	print ('Output saved as {}.  Open in Excel for viewing.'.format(fileName))
+	
