@@ -214,4 +214,4 @@ if __name__ == '__main__':
 	# We're done with the progress bar.  Need to cleanly remove it.
 	progressBar.close()
 
-	
+	saveData()
