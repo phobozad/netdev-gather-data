@@ -12,7 +12,7 @@ import signal
 import time
 import sys
 
-def getRouterData(routerIP):
+def getRouterData(routerIP,username,password):
 
 	# This function is called in each data collection process that we spawn
 
@@ -36,8 +36,8 @@ def getRouterData(routerIP):
 	router= {
 		"device_type": "cisco_xe",
 		"ip": routerIP,
-		"username": "admin",
-		"password": "cisco",
+		"username": username,
+		"password": password,
 		}
 	
 	# Add the device IP we are connecting to into the output for identification
@@ -126,6 +126,10 @@ def saveData():
 # very broken and weird
 # Its possible this isn't needed now that we moved off of using pool.imap_unordered, but need to test
 if __name__ == '__main__':
+	# Freeze support needed to complile/freeze into EXE on windows (e.g. py2exe, PyInstaller, cx_Freeze)
+	# Doesn't affect functionality otherwise.
+	multiprocessing.freeze_support()
+
 	routerList = []
 	outputResult=[]
 
@@ -163,8 +167,8 @@ if __name__ == '__main__':
 	#	Next step after prompting for same username for all devices is to be able to specify this per-device
 	#	Potentially could use a CSV with IP, username, password.  Could be extended to device type too in the future (e.g. Juniper, catalyst?)
 
-	#username = input("Username: ")
-	#password = getpass()
+	username = input("Username: ")
+	password = getpass()
 	
 	
 	msg = 'Enter the filename to save output to. \r\nAny existing file will be overwritten'
@@ -192,7 +196,7 @@ if __name__ == '__main__':
 	jobList = []
 	for router in routerList:
 		# We append the output object from apply_sync so we can later track its state
-		jobList.append(pool.apply_async(getRouterData,args=(router,),callback=processOutput))
+		jobList.append(pool.apply_async(getRouterData,args=(router,username,password),callback=processOutput))
 
 	# Don't accept any more jobs to be submitted to the processing pool
 	pool.close()
