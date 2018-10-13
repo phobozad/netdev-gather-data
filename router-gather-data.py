@@ -3,11 +3,12 @@
 # We need to run in python 3.3+
 
 import netmiko
-from tqdm import tqdm
+import progressbar
 import csv
 import multiprocessing
 from multiprocessing import Pool
 from getpass import getpass
+import threading
 
 import signal
 import time
@@ -16,12 +17,10 @@ import sys
 def getRouterData(routerIP,username,password):
 
 	# This function is called in each data collection process that we spawn
-
 	signal.signal(signal.SIGINT, signal.SIG_IGN)
-
 	# Read the commands and header names we should use to capture the output
 
-	# TODO: Don't open a file on every single thread every time - pass this into the function
+	# TODO: Don't open a file on every single thread/process every time - pass this into the function
 	# 	or access via a shared memory location
 	with open('inputdata.csv', 'rt') as csvfile:
 		paramReader = csv.reader(csvfile)
@@ -88,7 +87,29 @@ def processOutput(data):
 	outputResult.append(data)
 
 	# Let the progress bar know that one more device was completed so it updates accordingly
-	progressBar.update()
+	progressBar.update(progressBar.value + 1)
+
+def updateScreenProgress():
+	# Update progress bar so we continue to calculate time elaspsed/remaining between device completions
+	# We don't want to increase our progress so we pass the current value to just
+	# update the screen and not the progress percentage
+	progressBar.update(progressBar.value)
+
+# Recurring timer method based on code from
+# https://stackoverflow.com/questions/474528 and https://stackoverflow.com/questions/18018033
+def every(delay, task):
+	next_time = time.time() + delay
+	thisTimer = threading.currentThread()
+	while getattr(thisTimer,"do_run", True):
+		try:
+			task()
+		except Exception:
+			traceback.print_exc()
+			# in production code you might want to have this instead of course:
+			# logger.exception("Problem while executing repetitive task.")
+		# skip tasks if we are behind schedule:
+		time.sleep(max(0, next_time - time.time()))
+		next_time += (time.time() - next_time) // delay * delay + delay
 
 def sigIntHandler(sig, frame):
 	signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -96,9 +117,14 @@ def sigIntHandler(sig, frame):
 	print ('Interrupted by user...exiting.  Please wait up to 30 seconds while the system cleans up.')
 	# If any of the below vars are not defined, continue trying to clean up before exiting and don't crash
 	try:
-		progressBar.close()
+		# Stop the timer thread
+		updateTime.do_run=False
 	except NameError:
 		pass
+	#try:
+	#	progressBar.finish()
+	#except NameError:
+	#	pass
 	try:
 		saveData()
 	except NameError:
@@ -108,6 +134,7 @@ def sigIntHandler(sig, frame):
 		pool.join()
 	except NameError:
 		pass
+
 	sys.exit(1)
 	
 
@@ -196,10 +223,20 @@ if __name__ == '__main__':
 	# If we didn't specify more than 20 devices, just start processes for
 	# however many we have
 	pool = Pool(processes=20 if deviceQty >= 20 else deviceQty)
+
 	
-	# Use the tqdm library to generate a progress bar.
+	# Use the progressbar2 library to generate a progress bar.
 	# By specifying how many devices it will also automatically predict completion time
-	progressBar = tqdm(total=deviceQty)
+	barWidgets = [
+		"Processing:",
+		" (", progressbar.SimpleProgress(), ")",
+		" ", progressbar.Bar(),
+		" ", progressbar.Percentage(),
+		" ", progressbar.Timer(),
+		" ", progressbar.ETA(),
+	]
+	progressBar = progressbar.ProgressBar(max_value=deviceQty,widgets=barWidgets)
+	progressBar.update(0)
 	
 	# Iterate through all the routers specified.  For each one, submit its IP
 	# to the pool of worker processes to be processed.  When each process completes
@@ -211,22 +248,21 @@ if __name__ == '__main__':
 
 	# Don't accept any more jobs to be submitted to the processing pool
 	pool.close()
-
+	
+	# Start background thread to keep progress bar elapsed and ETA times moving
+	updateTime=threading.Thread(target=every,args=(0.5,updateScreenProgress))
+	updateTime.start()
+	
 	# Wait for all the submitted jobs to complete before continuing.
 	# As soon as a worker process completes one device, it will grab
 	# the next one in the list we sent to the pool
+	# This command blocks until all jobs are complete
 	pool.join()
-	#try:
-	#	while True:
-	#		if all(job.ready() for job in jobList):
-				# We completed all jobs successfully
-	#			break
-	#		time.sleep(1)
 
-	#except KeyboardInterrupt:
-		#sys.exit(1)
-	
+	# Stop the timer when we get here, as we have completed the processing now
+	updateTime.do_run=False
+
 	# We're done with the progress bar.  Need to cleanly remove it.
-	progressBar.close()
+	progressBar.finish()
 
 	saveData()

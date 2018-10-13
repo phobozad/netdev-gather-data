@@ -1,2 +1,2 @@
 netmiko
-tqdm
+progressbar2
