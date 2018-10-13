@@ -5,6 +5,7 @@
 import netmiko
 from tqdm import tqdm
 import csv
+import multiprocessing
 from multiprocessing import Pool
 from getpass import getpass
 
@@ -90,14 +91,24 @@ def processOutput(data):
 	progressBar.update()
 
 def sigIntHandler(sig, frame):
-		signal.signal(signal.SIGINT, signal.SIG_IGN)
-		print ()
-		print ('Interrupted by user...exiting.  Please wait up to 30 seconds while the system cleans up.')
+	signal.signal(signal.SIGINT, signal.SIG_IGN)
+	print ()
+	print ('Interrupted by user...exiting.  Please wait up to 30 seconds while the system cleans up.')
+	# If any of the below vars are not defined, continue trying to clean up before exiting and don't crash
+	try:
 		progressBar.close()
+	except NameError:
+		pass
+	try:
 		saveData()
+	except NameError:
+		pass
+	try:
 		pool.terminate()
 		pool.join()
-		sys.exit(1)
+	except NameError:
+		pass
+	sys.exit(1)
 	
 
 def saveData():
