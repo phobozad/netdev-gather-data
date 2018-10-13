@@ -143,7 +143,7 @@ def saveData():
 	global headers
 	global outputResult
 
-	with open(fileName,"wt") as fileOut:
+	with open(fileName,"wt",newline="") as fileOut:
 		csvWriter=csv.DictWriter(fileOut,fieldnames=headers)
 		csvWriter.writeheader()
 		try:
